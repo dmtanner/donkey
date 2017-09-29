@@ -7,8 +7,10 @@ developed for hobbiests and students with a focus on allowing fast experimentati
 community contributions.  
 
 #### Quick Links
-* [Code Documentation](http://docs.donkeycar.com)
-* [Instructions to build a Donkey2 car.](http://www.donkeycar.com)
+* [Donkeycar Updates & Examples](http://donkeycar.com)
+* [Vehicle Build Instructions](http://www.donkeycar.com)
+* [Software documentation](http://docs.donkeycar.com)
+* [Slack / Chat](https://donkey-slackin.herokuapp.com/)
 
 #### Use Donkey if you want to:
 * Make an RC car drive its self.
@@ -16,7 +18,7 @@ community contributions.
 * Experiment with different driving methods.
 * Add parts and sensors to your car.
 * Log sensor data. (images, user inputs, sensor readings) 
-* Drive yoru car via a web or game controler.
+* Drive your car via a web or game controler.
 * Leverage community contributed driving data.
 * Use existing hardware CAD designs for upgrades.
 
@@ -25,7 +27,8 @@ After building a Donkey2, here are the steps to start driving.
 
 install donkey
 ```
-pip install donkeycar
+git clone https://github.com/wroscoe/donkey donkeycar
+pip install -e donkeycar
 ```
 
 Create a car folder.

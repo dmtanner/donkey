@@ -48,7 +48,7 @@ var driveHandler = new function() {
 
       var manager = nipplejs.create(joystick_options);
       bindNipple(manager)
-
+      
       if(!!navigator.getGamepads){
         console.log("Device has gamepad support.")
         hasGamepad = true;
@@ -424,6 +424,7 @@ var driveHandler = new function() {
     var toggleBrake = function(){
       state.brakeOn = !state.brakeOn;
       initialGamma = null;
+      
 
       if (state.brakeOn) {
         brake();
@@ -435,6 +436,7 @@ var driveHandler = new function() {
           state.tele.user.angle = 0
           state.tele.user.throttle = 0
           state.recording = false
+          state.driveMode = 'user';
           postDrive()
 
 

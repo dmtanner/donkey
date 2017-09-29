@@ -6,6 +6,7 @@ Created on Tue Jul  4 12:32:53 2017
 @author: wroscoe
 """
 import os
+import sys
 import time
 import json
 import datetime
@@ -16,7 +17,7 @@ from PIL import Image
 import numpy as np
 
 
-class Tub():
+class Tub(object):
     """
     A datastore to store sensor data in a key, value format.
 
@@ -100,17 +101,58 @@ class Tub():
 
     def write_json_record(self, json_data):
         path = self.get_json_record_path(self.current_ix)
-        with open(path, 'w') as fp:
-            json.dump(json_data, fp)
+        try:
+            with open(path, 'w') as fp:
+                json.dump(json_data, fp)
+                #print('wrote record:', json_data)
+        except TypeError:
+            print('troubles with record:', json_data)
+        except:
+            print("Unexpected error:", sys.exc_info()[0])
+            raise
+
+    def get_num_records(self):
+        import glob
+        files = glob.glob(os.path.join(self.path, 'record_*.json'))
+        return len(files)
 
     def get_json_record_path(self, ix):
         return os.path.join(self.path, 'record_'+str(ix)+'.json')
 
     def get_json_record(self, ix):
         path = self.get_json_record_path(ix)
-        with open(path, 'r') as fp:
-            json_data = json.load(fp)
+        try:
+            with open(path, 'r') as fp:
+                json_data = json.load(fp)
+        except UnicodeDecodeError:
+            raise Exception('bad record: %d. You may want to run `python manage.py check --fix`' % ix)            
+        except:
+            print("Unexpected error:", sys.exc_info()[0])
+            raise
+
         return json_data
+
+    def check(self, fix=False):
+        '''
+        Iterate over all records and make sure we can load them.
+        Optionally remove records that cause a problem.
+        '''
+        for ix in self.get_index(shuffled=False):
+            try:
+                self.get_record(ix)
+            except:
+                if fix == False:
+                    print('problems with record:', self.path, ix)
+                else:
+                    print('problems with record, removing:', self.path, ix)
+                    self.remove_record(ix)
+
+    def remove_record(self, ix):
+        '''
+        remove data associate with a record
+        '''
+        record = self.get_json_record_path(ix)
+        os.unlink(record)
 
     def put_record(self, data):
         """
@@ -180,14 +222,13 @@ class Tub():
     def record_gen(self, index=None, record_transform=None):
         if index==None:
             index=self.get_index(shuffled=True)
-        while True:
-            for i in index:
-                record = self.get_record(i)
-                if record_transform:
-                    record = record_transform(record)
-                yield record
+        for i in index:
+            record = self.get_record(i)
+            if record_transform:
+                record = record_transform(record)
+            yield record
 
-    def batch_gen(self, keys=None, index=None, batch_size=32,
+    def batch_gen(self, keys=None, index=None, batch_size=128,
                   record_tranform=None):
         record_gen = self.record_gen(index, record_tranform)
         if keys==None:
@@ -207,7 +248,7 @@ class Tub():
             yield batch_arrays
 
 
-    def train_gen(self, X_keys, Y_keys, index=None, batch_size=32,
+    def train_gen(self, X_keys, Y_keys, index=None, batch_size=128,
                   record_transform=None):
         batch_gen = self.batch_gen(X_keys+Y_keys, index, batch_size, record_transform)
         while True:
@@ -219,7 +260,7 @@ class Tub():
             
     def train_val_gen(self, X_keys, Y_keys, batch_size=32, record_transform=None, train_split=.8):
         index = self.get_index(shuffled=True)
-        train_cutoff = int(len(index)*.8)
+        train_cutoff = int(len(index)*train_split)
         train_index = index[:train_cutoff]
         val_index = index[train_cutoff:]
     
@@ -300,3 +341,58 @@ class TubHandler():
         tub_path = self.create_tub_path()
         tw = TubWriter(path=tub_path, inputs=inputs, types=types)
         return tw
+
+
+
+class TubImageStacker(Tub):
+    '''
+    A Tub for training a NN with images that are the last three records stacked 
+    togther as 3 channels of a single image. The idea is to give a simple feedforward
+    NN some chance of building a model based on motion.
+    If you drive with the ImageFIFO part, then you don't need this.
+    Just make sure your inference pass uses the ImageFIFO that the NN will now expect.
+    '''
+    
+    def stack3Images(self, img_a, img_b, img_c):
+        '''
+        convert 3 rgb images into grayscale and put them into the 3 channels of
+        a single output image
+        '''
+        width, height, _ = img_a.shape
+
+        gray_a = cv2.cvtColor(img_a, cv2.COLOR_RGB2GRAY)
+        gray_b = cv2.cvtColor(img_b, cv2.COLOR_RGB2GRAY)
+        gray_c = cv2.cvtColor(img_c, cv2.COLOR_RGB2GRAY)
+        
+        img_arr = np.zeros([width, height, 3], dtype=np.dtype('B'))
+
+        img_arr[...,0] = np.reshape(gray_a, (width, height))
+        img_arr[...,1] = np.reshape(gray_b, (width, height))
+        img_arr[...,2] = np.reshape(gray_c, (width, height))
+
+        return img_arr
+
+    def get_record(self, ix):
+        '''
+        get the current record and two previous.
+        stack the 3 images into a single image.
+        '''
+        data = super(TubImageStacker, self).get_record(ix)
+
+        if ix > 1:
+            data_ch1 = super(TubImageStacker, self).get_record(ix - 1)
+            data_ch0 = super(TubImageStacker, self).get_record(ix - 2)
+
+            json_data = self.get_json_record(ix)
+            for key, val in json_data.items():
+                typ = self.get_input_type(key)
+
+                #load objects that were saved as separate files
+                if typ == 'image':
+                    val = self.stack3Images(data_ch0[key], data_ch0[key], data[key])
+                    data[key] = val
+                elif typ == 'image_array':
+                    img = self.stack3Images(data_ch0[key], data_ch0[key], data[key])
+                    val = np.array(img)
+
+        return data
